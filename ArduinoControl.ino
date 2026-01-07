@@ -5,70 +5,79 @@
 #include <EthernetUdp.h>
 #include <Servo.h>
 
+
+// BTS7960 motor driver 
+#define RPWM 5
+#define LPWM 6
+#define REN  7
+#define LEN  8
+
 // Servos
-const int LEFT_SERVO_PIN = 6;
-const int RIGHT_SERVO_PIN = 7;
+#define FL_SERVO 9
+#define FR_SERVO 10
+#define NECK_SERVO 11
 
-// Motor driver
-const int MOTOR_EN_PIN = 8;   // Enable pin on BTS7960
 
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
-IPAddress ip(192, 168, 1, 50);
-unsigned int localPort = 5005;
 
+Servo flServo, frServo, neckServo;
+
+byte mac[] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xED};
+IPAddress ip(192,168,1,50);
 EthernetUDP Udp;
 
-Servo leftServo;
-Servo rightServo;
+char buffer[64];
 
-char packetBuffer[64];
+int speedCmd = 0;
+int flAngle = 90;
+int frAngle = 90;
+int neckAngle = 90;
 
-int motorState = 0;
-int leftAngle = 90;
-int rightAngle = 90;
-
-unsigned long lastPacketTime = 0;
-const unsigned long FAILSAFE_TIMEOUT = 500; // ms
+unsigned long lastPacket = 0;
 
 void setup() {
   Ethernet.begin(mac, ip);
-  Udp.begin(localPort);
+  Udp.begin(5005);
 
-  leftServo.attach(LEFT_SERVO_PIN);
-  rightServo.attach(RIGHT_SERVO_PIN);
+  pinMode(RPWM, OUTPUT);
+  pinMode(LPWM, OUTPUT);
+  pinMode(REN, OUTPUT);
+  pinMode(LEN, OUTPUT);
 
-  pinMode(MOTOR_EN_PIN, OUTPUT);
-  digitalWrite(MOTOR_EN_PIN, LOW);
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, LOW);
 
-  leftServo.write(90);
-  rightServo.write(90);
+  flServo.attach(FL_SERVO);
+  frServo.attach(FR_SERVO);
+  neckServo.attach(NECK_SERVO);
+
+  flServo.write(90);
+  frServo.write(90);
+  neckServo.write(90);
 }
-
-void parsePacket(char* data) {
-  sscanf(data, "M:%d,L:%d,R:%d", &motorState, &leftAngle, &rightAngle);
-
-  leftAngle = constrain(leftAngle, 0, 180);
-  rightAngle = constrain(rightAngle, 0, 180);
-}
-
 void loop() {
-  int packetSize = Udp.parsePacket();
-  if (packetSize) {
-    int len = Udp.read(packetBuffer, 63);
-    if (len > 0) packetBuffer[len] = 0;
+  int size = Udp.parsePacket();
+  if (size) {
+    int len = Udp.read(buffer, 63);
+    buffer[len] = 0;
 
-    parsePacket(packetBuffer);
-    lastPacketTime = millis();
+    sscanf(buffer,
+      "SPD:%d,FL:%d,FR:%d,NECK:%d",
+      &speedCmd, &flAngle, &frAngle, &neckAngle
+    );
+
+    lastPacket = millis();
   }
 
-  // Failsafe: stop motor if comms lost
-  if (millis() - lastPacketTime > FAILSAFE_TIMEOUT) {
-    digitalWrite(MOTOR_EN_PIN, LOW);
-  } else {
-    digitalWrite(MOTOR_EN_PIN, motorState ? HIGH : LOW);
+  // Failsafe
+  if (millis() - lastPacket > 500) {
+    speedCmd = 0;
   }
 
-  leftServo.write(leftAngle);
-  rightServo.write(rightAngle);
+  analogWrite(RPWM, speedCmd);
+  analogWrite(LPWM, 0);
+
+  flServo.write(constrain(flAngle, 0, 180));
+  frServo.write(constrain(frAngle, 0, 180));
+  neckServo.write(constrain(neckAngle, 0, 180));
 }
 
